@@ -1,0 +1,26 @@
+# Core
+python-dotenv==1.0.1
+
+# Ingestion
+beautifulsoup4==4.12.3
+pypdf==4.3.1
+langchain-text-splitters==0.2.4
+
+# Embeddings + vector store
+sentence-transformers==3.0.1
+chromadb==0.5.5
+
+# Sparse retrieval
+rank-bm25==0.2.2
+
+# Generation
+anthropic==0.34.2
+
+# API + dashboard
+fastapi==0.112.0
+uvicorn[standard]==0.30.6
+streamlit==1.38.0
+
+# Dev / eval
+pytest==8.3.2
+numpy==1.26.4

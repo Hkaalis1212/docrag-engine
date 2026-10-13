@@ -1,0 +1,13 @@
+# Phase 5 will add `api` and `dashboard` services here (FastAPI + Streamlit,
+# per ARCHITECTURE.md). For now this just containerizes the Phase 1 ingest
+# pipeline so `docker compose run ingest` reproduces the seed step without a
+# local Python environment.
+services:
+  ingest:
+    build: .
+    command: ["python", "-m", "scripts.seed", "--corpus", "corpus/throttleguard-docs", "--strategy", "structure"]
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./sparse_index.pkl:/app/sparse_index.pkl
+    env_file:
+      - .env
