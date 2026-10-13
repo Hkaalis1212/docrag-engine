@@ -14,7 +14,7 @@ rationale, and phase-by-phase build plan.
 | Phase | Status |
 |---|---|
 | 1 — Ingestion, chunking, indexing | ✅ built |
-| 2 — Hybrid retrieval (dense + BM25 + RRF + rerank) | ⬜ not started |
+| 2 — Hybrid retrieval (dense + BM25 + RRF + rerank) | ✅ built |
 | 3 — Grounded generation + citation verification | ⬜ not started |
 | 4 — Evaluation framework (golden set + metrics) | ⬜ not started |
 | 5 — API + dashboard | ⬜ not started |
@@ -51,6 +51,30 @@ chunking strategy actually matter for retrieval quality. Swappable: point
 `--corpus` at any directory of markdown/text/HTML/PDF files and it reindexes
 from scratch.
 
+## Quickstart (Phase 2)
+
+```python
+from indexing.vector_store import VectorStore
+from indexing.sparse_index import SparseIndex
+from indexing.embeddings import get_embedder
+from retrieval.hybrid import HybridRetriever
+from retrieval.rerank import rerank
+
+retriever = HybridRetriever(
+    VectorStore(persist_dir="chroma_db"),
+    SparseIndex.load("sparse_index.pkl"),
+    get_embedder(),
+)
+
+fused = retriever.retrieve("What's the DEF concentration spec?")   # RRF top-10
+top5 = rerank("What's the DEF concentration spec?", fused)          # Claude rerank, needs ANTHROPIC_API_KEY
+
+# Compare against dense-only (the Phase 5 dashboard toggle's second path):
+dense_only = retriever.retrieve_dense_only("What's the DEF concentration spec?")
+```
+
+`rerank()` needs `ANTHROPIC_API_KEY`; `retrieve()`/`retrieve_dense_only()` don't — only the second-pass relevance scoring calls out to Claude.
+
 ## Design decisions worth asking about in an interview
 
 - **Local embeddings over a hosted API** — `indexing/embeddings.py` swaps
@@ -70,3 +94,19 @@ from scratch.
 - **Vector and sparse indexes built from the same chunk list in one pass** —
   `scripts/seed.py` embeds and BM25-indexes the identical post-dedup chunk
   set in the same run, specifically so the two indexes can't drift apart.
+- **Fusion by rank, not raw score** — `retrieval/hybrid.py`'s Reciprocal
+  Rank Fusion combines dense cosine similarity and BM25 score by each
+  candidate's RANK position in its own list, not the raw score — the two
+  scores live on incomparable scales (bounded [0,1] vs. unbounded,
+  corpus-dependent), so fusing by rank avoids having to calibrate them
+  against each other.
+- **One batched rerank call, not N** — `retrieval/rerank.py` scores all 20
+  candidates in a single Claude call (a JSON array in, a JSON array of
+  scores out) instead of one call per candidate — ~20x fewer API calls for
+  one longer prompt, the cost-aware tradeoff over the naive design.
+- **A real BM25 gotcha, documented where it bites** — `rank_bm25`'s IDF
+  formula has no +1 smoothing, so a term appearing in more than half a
+  (especially small) corpus gets a *negative* idf, which can silently drop
+  an otherwise-relevant chunk below the `score > 0` floor. Documented in
+  `indexing/sparse_index.py` and specifically worked around in the Phase 2
+  integration test, rather than quietly working past it.

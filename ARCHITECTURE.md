@@ -183,5 +183,5 @@ docrag-engine/
 
 ## Status
 
-Scaffolding + Phase 1 (ingestion, chunking, indexing) in progress. Phases
-2–6 tracked in the repo issues / README checklist as they're built.
+Phase 1 (ingestion, chunking, indexing) and Phase 2 (hybrid retrieval) are
+built. See the status table in `README.md` for the full phase checklist.

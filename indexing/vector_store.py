@@ -31,8 +31,13 @@ class VectorStore:
     ) -> None:
         if not ids:
             return
+        # Chroma rejects a completely empty metadata dict outright (raises
+        # ValueError), even though `None` or a populated dict are both fine.
+        # A caller with genuinely no metadata for a chunk (an edge case in
+        # tests, or a minimal ingestion path) shouldn't crash over it.
+        safe_metadatas = [m if m else {"_empty": True} for m in metadatas]
         self.collection.add(
-            ids=ids, embeddings=embeddings, documents=documents, metadatas=metadatas
+            ids=ids, embeddings=embeddings, documents=documents, metadatas=safe_metadatas
         )
 
     def query(self, query_embedding: list[float], top_k: int = 10) -> list[dict]:

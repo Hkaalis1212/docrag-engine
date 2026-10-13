@@ -29,6 +29,8 @@ def _tokenize(text: str) -> list[str]:
 class SparseHit:
     chunk_id: str
     score: float
+    text: str
+    metadata: dict
 
 
 class SparseIndex:
@@ -49,11 +51,23 @@ class SparseIndex:
         if self._bm25 is None:
             return []
         scores = self._bm25.get_scores(_tokenize(query_text))
+        # NOTE: rank_bm25's BM25Okapi computes IDF without +1 smoothing, so a
+        # term appearing in more than half the indexed corpus gets a
+        # NEGATIVE idf. In a small or narrow-topic corpus this can push an
+        # otherwise-relevant chunk's score below zero, filtering it out
+        # below via `scores[i] > 0`. Not a bug here — it's upstream library
+        # behavior — but worth knowing if sparse recall looks worse than
+        # expected on a small corpus with a lot of shared vocabulary.
         ranked = sorted(
             range(len(scores)), key=lambda i: scores[i], reverse=True
         )[:top_k]
         return [
-            SparseHit(chunk_id=self._chunk_ids[i], score=float(scores[i]))
+            SparseHit(
+                chunk_id=self._chunk_ids[i],
+                score=float(scores[i]),
+                text=self._texts[i],
+                metadata=self._metadatas[i],
+            )
             for i in ranked
             if scores[i] > 0
         ]
