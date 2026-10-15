@@ -15,7 +15,7 @@ rationale, and phase-by-phase build plan.
 |---|---|
 | 1 — Ingestion, chunking, indexing | ✅ built |
 | 2 — Hybrid retrieval (dense + BM25 + RRF + rerank) | ✅ built |
-| 3 — Grounded generation + citation verification | ⬜ not started |
+| 3 — Grounded generation + citation verification | ✅ built |
 | 4 — Evaluation framework (golden set + metrics) | ⬜ not started |
 | 5 — API + dashboard | ⬜ not started |
 | 6 — Portfolio polish (demo + case study) | ⬜ not started |
@@ -75,6 +75,26 @@ dense_only = retriever.retrieve_dense_only("What's the DEF concentration spec?")
 
 `rerank()` needs `ANTHROPIC_API_KEY`; `retrieve()`/`retrieve_dense_only()` don't — only the second-pass relevance scoring calls out to Claude.
 
+## Quickstart (Phase 3)
+
+```python
+from generation.generate import answer_question
+from generation.verify_citations import verify_citations
+from generation.confidence import score_confidence
+
+result = answer_question(question, top5)  # top5 from rerank(), above
+
+if result.insufficient_context:
+    print(result.answer_text)  # structured "couldn't find this" response
+else:
+    verdicts = verify_citations(result.citations, result.used_chunks)
+    confidence = score_confidence(question, result.answer_text, top5, verdicts)
+    print(result.answer_text)
+    print(f"composite confidence: {confidence.composite:.2f}")
+```
+
+All three calls need `ANTHROPIC_API_KEY` (generation, citation verification, and the completeness axis of confidence scoring all call Claude). `answer_question()` never calls the model at all when the reranked top chunk scores below the confidence floor — the "I couldn't find this" response is returned with zero LLM calls.
+
 ## Design decisions worth asking about in an interview
 
 - **Local embeddings over a hosted API** — `indexing/embeddings.py` swaps
@@ -110,3 +130,17 @@ dense_only = retriever.retrieve_dense_only("What's the DEF concentration spec?")
   an otherwise-relevant chunk below the `score > 0` floor. Documented in
   `indexing/sparse_index.py` and specifically worked around in the Phase 2
   integration test, rather than quietly working past it.
+- **The confidence gate costs zero LLM calls when it fires** —
+  `generation/generate.py`'s `answer_question()` checks the top reranked
+  chunk's score *before* calling Claude at all; on a genuinely off-corpus
+  question, the "I couldn't find this" response is returned with no
+  generation call, no hallucination risk, and no API spend.
+- **Citation verification is a second, independent LLM pass** — a citation
+  marker only proves the model *intended* to cite something; `generate.py`
+  doesn't know if the cited passage actually backs up the sentence it's
+  attached to. `verify_citations.py` re-checks every claim-citation pair
+  against the literal source text in a separate call, and
+  `confidence.py`'s citation-coverage axis is weighted highest of the three
+  (0.4) specifically because an unsupported citation — a confident-sounding
+  hallucination with a fake source — is the most dangerous failure mode a
+  RAG system can produce.
