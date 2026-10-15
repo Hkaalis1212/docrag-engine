@@ -17,7 +17,7 @@ rationale, and phase-by-phase build plan.
 | 2 — Hybrid retrieval (dense + BM25 + RRF + rerank) | ✅ built |
 | 3 — Grounded generation + citation verification | ✅ built |
 | 4 — Evaluation framework (golden set + metrics) | ✅ built |
-| 5 — API + dashboard | ⬜ not started |
+| 5 — API + dashboard | ✅ built |
 | 6 — Portfolio polish (demo + case study) | ⬜ not started |
 
 ## Quickstart (Phase 1)
@@ -122,6 +122,30 @@ python -m eval.run_eval --out eval_report.md
 
 Every case carries `source_docs` (which corpus file(s) the answer should come from, for the `retrieval_relevance` metric) and `expect_insufficient` (whether `answer_question()` should correctly refuse to answer). The run needs `ANTHROPIC_API_KEY` (rerank, generation, citation verification, and the correctness judge all call Claude) and a working local embedding model.
 
+## Quickstart (Phase 5)
+
+```bash
+# Seed an index first (see Phase 1), then:
+uvicorn api.main:app --reload          # FastAPI on :8000, OpenAPI docs at /docs
+streamlit run dashboard/app.py          # Streamlit on :8501, talks to the API over HTTP
+
+# Or both at once:
+docker compose run ingest               # one-time: seed the sample corpus
+docker compose up api dashboard
+```
+
+The API exposes:
+
+| Route | Needs `ANTHROPIC_API_KEY`? | Purpose |
+|---|---|---|
+| `GET /health` | No | Index status |
+| `GET /v1/documents` | No | List indexed documents + chunk counts |
+| `POST /v1/compare_retrieval` | No | Hybrid vs. dense-only retrieval, side by side — pure retrieval, no generation |
+| `POST /v1/ask` | Yes | Full pipeline: retrieve → rerank → generate → verify → confidence |
+| `POST /v1/ingest` | No | Add one new document to the index |
+
+The dashboard is a thin HTTP client over this API (`DOCRAG_API_URL`, default `http://localhost:8000`) — it never imports the pipeline directly, matching the two-service split in `docker-compose.yml`.
+
 ## Design decisions worth asking about in an interview
 
 - **Local embeddings over a hosted API** — `indexing/embeddings.py` swaps
@@ -186,3 +210,24 @@ Every case carries `source_docs` (which corpus file(s) the answer should come fr
   separate index (its own Chroma dir + BM25 file) instead of retrofitting
   metadata filtering into already-tested code — simpler, and avoids the
   cross-strategy contamination risk entirely.
+- **The pipeline is a lazily-built FastAPI dependency, not a startup
+  hook** — `api/main.py`'s `get_pipeline()` is a plain function wrapped in
+  `Depends(...)`, built on first request rather than in a `lifespan`
+  context manager. That one choice is what makes every route unit
+  testable with `app.dependency_overrides` and a fully fake pipeline
+  (`tests/test_api.py`) instead of needing a real embedding model or API
+  key just to exercise route logic.
+- **Ingest's vector add is incremental; its BM25 rebuild is not, and can't
+  be** — `POST /v1/ingest` (`api/main.py`) does a true incremental
+  `VectorStore.add()`, but `rank_bm25`'s IDF is a statistic over the whole
+  corpus, so there's no correct way to add one document to an existing
+  `BM25Okapi` index — the only correct move is rebuilding it from the full
+  chunk set, which is what `ingest()` does via `VectorStore.get_all()`.
+  Documented in the route's own docstring as a scale tradeoff, not hidden
+  as an implementation detail.
+- **`/v1/compare_retrieval` is a separate, cheaper endpoint, not a flag on
+  `/v1/ask`** — it calls `retrieve()` and `retrieve_dense_only()` with no
+  generation step at all, so the dashboard's hybrid-vs-dense-only toggle
+  costs zero LLM calls and needs no API key, instead of silently doubling
+  the cost of every `/v1/ask` call to support a comparison view most
+  requests don't need.

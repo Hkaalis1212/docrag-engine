@@ -43,3 +43,20 @@ def test_reset_clears_collection(tmp_path):
     assert store.count() == 3
     store.reset()
     assert store.count() == 0
+
+
+def test_get_all_returns_every_chunk(tmp_path):
+    store = _store(tmp_path)
+    all_chunks = store.get_all()
+
+    assert len(all_chunks) == 3
+    ids = {c["chunk_id"] for c in all_chunks}
+    assert ids == {"a", "b", "c"}
+    by_id = {c["chunk_id"]: c for c in all_chunks}
+    assert by_id["a"]["text"] == "about topic A"
+    assert by_id["a"]["metadata"] == {"doc_id": "d1"}
+
+
+def test_get_all_on_empty_store_returns_empty_list(tmp_path):
+    store = VectorStore(persist_dir=tmp_path / "chroma")
+    assert store.get_all() == []

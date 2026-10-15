@@ -60,6 +60,19 @@ class VectorStore:
             for i in range(len(result["ids"][0]))
         ]
 
+    def get_all(self) -> list[dict]:
+        """Every chunk currently in the collection, as {chunk_id, text, metadata}.
+        Used by GET /v1/documents (to list what's indexed) and POST
+        /v1/ingest (to rebuild the BM25 index, which has no incremental-add
+        API of its own - see indexing/sparse_index.py)."""
+        if self.count() == 0:
+            return []
+        result = self.collection.get(include=["documents", "metadatas"])
+        return [
+            {"chunk_id": result["ids"][i], "text": result["documents"][i], "metadata": result["metadatas"][i]}
+            for i in range(len(result["ids"]))
+        ]
+
     def count(self) -> int:
         return self.collection.count()
 

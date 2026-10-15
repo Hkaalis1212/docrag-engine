@@ -1,6 +1,5 @@
-# Phase 5 — not wired to a running service yet (API/dashboard land in
-# Phases 2-5). Kept here now so the ingestion pipeline is containerizable
-# from day one rather than retrofitted later.
+# Shared base image for all three docker-compose services (ingest, api,
+# dashboard) - each overrides CMD via its own `command:` in docker-compose.yml.
 FROM python:3.11-slim
 
 WORKDIR /app

@@ -1,7 +1,8 @@
-# Phase 5 will add `api` and `dashboard` services here (FastAPI + Streamlit,
-# per ARCHITECTURE.md). For now this just containerizes the Phase 1 ingest
-# pipeline so `docker compose run ingest` reproduces the seed step without a
-# local Python environment.
+# `docker compose run ingest` seeds the sample corpus (structure strategy)
+# into a Chroma dir + BM25 file shared with `api` via volumes, then
+# `docker compose up api dashboard` brings up the service pair. Run ingest
+# once before first bringing up api/dashboard - they read the index,
+# they don't build it.
 services:
   ingest:
     build: .
@@ -11,3 +12,28 @@ services:
       - ./sparse_index.pkl:/app/sparse_index.pkl
     env_file:
       - .env
+
+  api:
+    build: .
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./chroma_db:/app/chroma_db
+      - ./sparse_index.pkl:/app/sparse_index.pkl
+      - ./ingested_docs:/app/ingested_docs
+    env_file:
+      - .env
+    environment:
+      DOCRAG_PERSIST_DIR: chroma_db
+      DOCRAG_SPARSE_INDEX_PATH: sparse_index.pkl
+
+  dashboard:
+    build: .
+    command: ["streamlit", "run", "dashboard/app.py", "--server.port", "8501", "--server.address", "0.0.0.0"]
+    ports:
+      - "8501:8501"
+    environment:
+      DOCRAG_API_URL: http://api:8000
+    depends_on:
+      - api
