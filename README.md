@@ -16,7 +16,7 @@ rationale, and phase-by-phase build plan.
 | 1 — Ingestion, chunking, indexing | ✅ built |
 | 2 — Hybrid retrieval (dense + BM25 + RRF + rerank) | ✅ built |
 | 3 — Grounded generation + citation verification | ✅ built |
-| 4 — Evaluation framework (golden set + metrics) | ⬜ not started |
+| 4 — Evaluation framework (golden set + metrics) | ✅ built |
 | 5 — API + dashboard | ⬜ not started |
 | 6 — Portfolio polish (demo + case study) | ⬜ not started |
 
@@ -31,9 +31,16 @@ pip install -r requirements.txt
 # (~130MB, one-time, no API key needed).
 python -m scripts.seed --corpus corpus/throttleguard-docs --strategy structure
 
-# Try the other two strategies against the same corpus to compare later:
-python -m scripts.seed --corpus corpus/throttleguard-docs --strategy fixed
-python -m scripts.seed --corpus corpus/throttleguard-docs --strategy semantic
+# Each strategy gets its OWN index (separate Chroma dir + BM25 file) - do
+# not reuse the same --persist-dir/--sparse-index-path across strategies,
+# or the second run's BM25 index silently overwrites the first's:
+python -m scripts.seed --corpus corpus/throttleguard-docs --strategy fixed \
+    --persist-dir chroma_db_fixed --sparse-index-path sparse_index_fixed.pkl
+python -m scripts.seed --corpus corpus/throttleguard-docs --strategy semantic \
+    --persist-dir chroma_db_semantic --sparse-index-path sparse_index_semantic.pkl
+
+# Or just run the Phase 4 eval harness, which builds all three automatically:
+python -m eval.run_eval
 ```
 
 Run the test suite (no API key, no model download required — chunking and
@@ -95,6 +102,26 @@ else:
 
 All three calls need `ANTHROPIC_API_KEY` (generation, citation verification, and the completeness axis of confidence scoring all call Claude). `answer_question()` never calls the model at all when the reranked top chunk scores below the confidence floor — the "I couldn't find this" response is returned with zero LLM calls.
 
+## Quickstart (Phase 4)
+
+```bash
+# Builds a fully separate index per strategy (fixed/structure/semantic),
+# runs all 67 golden questions through the full pipeline against each one,
+# and writes a markdown comparison report.
+python -m eval.run_eval --out eval_report.md
+```
+
+`eval/golden_dataset.jsonl` has 67 hand-written Q&A pairs against the sample corpus, across four categories:
+
+| Category | Count | Tests |
+|---|---|---|
+| `direct` | 41 | single-document lookups |
+| `multi_hop` | 12 | answer spans exactly two source documents |
+| `unanswerable` | 8 | genuinely not covered by the corpus — `expect_insufficient: true` |
+| `ambiguous` | 6 | deliberately underspecified questions with multiple valid readings |
+
+Every case carries `source_docs` (which corpus file(s) the answer should come from, for the `retrieval_relevance` metric) and `expect_insufficient` (whether `answer_question()` should correctly refuse to answer). The run needs `ANTHROPIC_API_KEY` (rerank, generation, citation verification, and the correctness judge all call Claude) and a working local embedding model.
+
 ## Design decisions worth asking about in an interview
 
 - **Local embeddings over a hosted API** — `indexing/embeddings.py` swaps
@@ -144,3 +171,18 @@ All three calls need `ANTHROPIC_API_KEY` (generation, citation verification, and
   (0.4) specifically because an unsupported citation — a confident-sounding
   hallucination with a fake source — is the most dangerous failure mode a
   RAG system can produce.
+- **Faithfulness and citation accuracy are two different metrics on
+  purpose** — `eval/metrics.py` keeps "did every claim get cited at all"
+  (`faithfulness`, pure text analysis, zero LLM calls) separate from "are
+  the citations that exist actually correct" (`citation_accuracy`, from
+  the independent verification pass). A chunking strategy could move one
+  without moving the other, and collapsing them into one number would
+  hide that.
+- **A real design gap found and fixed mid-build**: Phase 1's `seed.py`
+  originally documented a single shared, strategy-tagged Chroma collection
+  for the Phase 4 bake-off to filter by — but `SparseIndex` has no concept
+  of tagging, so a second `seed()` run would have silently overwritten the
+  first strategy's BM25 index. Fixed by having each strategy build a fully
+  separate index (its own Chroma dir + BM25 file) instead of retrofitting
+  metadata filtering into already-tested code — simpler, and avoids the
+  cross-strategy contamination risk entirely.

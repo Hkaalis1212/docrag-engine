@@ -183,6 +183,7 @@ docrag-engine/
 
 ## Status
 
-Phases 1-3 (ingestion/chunking/indexing, hybrid retrieval, grounded
-generation + citation verification + confidence scoring) are built. See
-the status table in `README.md` for the full phase checklist.
+Phases 1-4 (ingestion/chunking/indexing, hybrid retrieval, grounded
+generation + citation verification + confidence scoring, and the golden-set
+evaluation framework + chunking-strategy bake-off) are built. See the
+status table in `README.md` for the full phase checklist.
